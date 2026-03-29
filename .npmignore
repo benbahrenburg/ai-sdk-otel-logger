@@ -1,0 +1,15 @@
+src/
+tests/
+examples/
+docs/
+coverage/
+.gitignore
+.prettierrc
+eslint.config.mjs
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+bun.lock
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+docs/plans/
