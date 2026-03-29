@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { performance } from 'node:perf_hooks';
 import { BufferedTransport } from '../src/buffered-transport.js';
 import {
