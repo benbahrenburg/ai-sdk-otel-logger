@@ -1,10 +1,18 @@
 import type { AsyncLogTransport } from '../transport.js';
 import { LogRecord } from '../transport.js';
+import {
+  validateEndpoint,
+  validateHeaders,
+} from '../internal/net-security.js';
 
 export interface OtlpHttpTransportOptions {
   /** OTLP HTTP endpoint (e.g., 'https://localhost:4318/v1/logs'). */
   endpoint: string;
-  /** Additional HTTP headers (e.g., authorization tokens). */
+  /**
+   * Additional HTTP headers (e.g., authorization tokens). Header names must
+   * match RFC 7230 token syntax; values must not contain CR/LF. The fixed
+   * `Content-Type: application/json` header cannot be overridden.
+   */
   headers?: Record<string, string>;
   /** Request timeout in milliseconds. Default: 10000. */
   timeoutMs?: number;
@@ -16,8 +24,18 @@ export interface OtlpHttpTransportOptions {
   maxBatchDelayMs?: number;
   /** Called when a transport error occurs. */
   onError?: (error: unknown) => void;
-  /** Allow insecure HTTP endpoints. Default: false (warns on non-HTTPS). */
+  /**
+   * Allow non-loopback HTTP endpoints. Default: false (throws at
+   * construction). Set `true` only for trusted internal networks — telemetry
+   * is sent in cleartext.
+   */
   allowInsecure?: boolean;
+  /**
+   * Additional opt-in required when `allowInsecure: true` is combined with
+   * credential-bearing headers (Authorization, Cookie, API-key style).
+   * Default: false (throws).
+   */
+  allowInsecureWithCredentials?: boolean;
 }
 
 const LOG_LEVEL_TO_SEVERITY: Record<string, { number: number; text: string }> =
@@ -46,33 +64,21 @@ export class OtlpHttpTransport implements AsyncLogTransport {
   private isShutdown = false;
 
   constructor(options: OtlpHttpTransportOptions) {
+    const headers = options.headers ?? {};
+    validateHeaders(headers);
+    validateEndpoint(options.endpoint, {
+      allowInsecure: options.allowInsecure,
+      allowInsecureWithCredentials: options.allowInsecureWithCredentials,
+      headers,
+    });
+
     this.endpoint = options.endpoint;
-    this.headers = options.headers ?? {};
+    this.headers = headers;
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.batchEnabled = options.batch ?? true;
     this.maxBatchSize = options.maxBatchSize ?? 100;
     this.maxBatchDelayMs = options.maxBatchDelayMs ?? 5_000;
     this.onError = options.onError;
-
-    // Warn on insecure non-localhost HTTP endpoints
-    if (!options.allowInsecure) {
-      try {
-        const url = new URL(this.endpoint);
-        if (
-          url.protocol === 'http:' &&
-          url.hostname !== 'localhost' &&
-          url.hostname !== '127.0.0.1' &&
-          url.hostname !== '::1'
-        ) {
-          console.warn(
-            `[ai-sdk-otel-logger] Insecure HTTP endpoint detected: ${this.endpoint}. ` +
-              `Use HTTPS or set allowInsecure: true to suppress this warning.`,
-          );
-        }
-      } catch {
-        // Invalid URL — will fail at send time
-      }
-    }
   }
 
   emit(record: LogRecord): void | Promise<void> {
@@ -145,11 +151,13 @@ export class OtlpHttpTransport implements AsyncLogTransport {
       await fetch(this.endpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           ...this.headers,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
         signal: controller.signal,
+        redirect: 'error',
+        cache: 'no-store',
       });
     } catch (err) {
       this.onError?.(err);

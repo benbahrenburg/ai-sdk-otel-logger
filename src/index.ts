@@ -42,6 +42,10 @@ export { CachedTimestamp } from './cached-timestamp.js';
 export { AdaptiveSampler } from './sampling.js';
 export type { SamplingOptions } from './sampling.js';
 
+// Redaction helpers
+export { createDefaultRedactor } from './redaction.js';
+export type { DefaultRedactorOptions } from './redaction.js';
+
 // Plugin system
 export type { Plugin, PluginContext, PluginFactory } from './plugin.js';
 

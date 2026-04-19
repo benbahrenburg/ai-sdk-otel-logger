@@ -62,4 +62,58 @@ describe('AdaptiveSampler', () => {
 
     vi.useRealTimers();
   });
+
+  it('uses random sampling by default', () => {
+    const sampler = new AdaptiveSampler();
+    expect(sampler.sampleBy).toBe('random');
+  });
+
+  it('accepts a trace id with sampleBy: traceId', () => {
+    const sampler = new AdaptiveSampler({
+      sampleBy: 'traceId',
+      minRate: 1.0,
+      maxRate: 1.0,
+      targetSamplesPerSecond: 10_000,
+    });
+    // Trace id yielding a known low score is always sampled at rate 1.0
+    expect(
+      sampler.shouldSample('0123456789abcdef0123456789abcdef'),
+    ).toBe(true);
+  });
+
+  it('falls back to random when traceId is missing under traceId strategy', () => {
+    const sampler = new AdaptiveSampler({ sampleBy: 'traceId' });
+    // Must not throw and must return a boolean.
+    expect(typeof sampler.shouldSample()).toBe('boolean');
+  });
+
+  it('handles short or malformed trace ids without throwing', () => {
+    const sampler = new AdaptiveSampler({
+      sampleBy: 'traceId',
+      minRate: 1.0,
+      maxRate: 1.0,
+    });
+    expect(sampler.shouldSample('abc')).toBe(true);
+    expect(sampler.shouldSample('zzzzzzzzzzzzzzzz')).toBe(true);
+  });
+
+  it('uses maxRate when no requests in the window', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+
+    const sampler = new AdaptiveSampler({ maxRate: 0.75 });
+    // Push 50 requests (triggers recalc), then advance the clock past
+    // the 10s window so the recalc sees zero recent requests.
+    for (let i = 0; i < 49; i++) sampler.shouldSample();
+    vi.setSystemTime(new Date('2026-01-01T00:01:00.000Z'));
+    sampler.shouldSample();
+    expect(sampler.rate).toBe(0.75);
+
+    vi.useRealTimers();
+  });
+
+  it('does not promote slow requests when threshold is undefined', () => {
+    const sampler = new AdaptiveSampler();
+    expect(sampler.shouldPromote(false, 99_999_999)).toBe(false);
+  });
 });

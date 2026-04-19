@@ -1,5 +1,10 @@
 import type { LogTransport } from '../transport.js';
 import { LogRecord } from '../transport.js';
+import { neutralizeForLineOutput } from '../internal/sanitize.js';
+
+function safe(value: unknown): string {
+  return neutralizeForLineOutput(String(value ?? ''));
+}
 
 export interface DevModeOptions {
   /** Auto-detect: true in NODE_ENV=development, false otherwise. */
@@ -59,8 +64,8 @@ export class DevModeTransport implements LogTransport {
     switch (record.event) {
       case 'ai.start':
         parts.push('start');
-        if (record.modelId) parts.push(String(record.modelId));
-        if (record.functionId) parts.push(String(record.functionId));
+        if (record.modelId) parts.push(safe(record.modelId));
+        if (record.functionId) parts.push(safe(record.functionId));
         break;
 
       case 'ai.step.start':
@@ -69,7 +74,7 @@ export class DevModeTransport implements LogTransport {
 
       case 'ai.step.finish':
         parts.push(
-          `step:${record.stepNumber ?? '?'} finish ${record.finishReason ?? 'unknown'}`,
+          `step:${record.stepNumber ?? '?'} finish ${safe(record.finishReason ?? 'unknown')}`,
         );
         if (this.showTokens && record.totalTokens !== undefined) {
           const inTok = record.inputTokens ?? 0;
@@ -83,23 +88,25 @@ export class DevModeTransport implements LogTransport {
         break;
 
       case 'ai.tool.start':
-        parts.push(`tool:${record.toolName ?? '?'} call`);
+        parts.push(`tool:${safe(record.toolName ?? '?')} call`);
         break;
 
       case 'ai.tool.finish':
-        parts.push(`tool:${record.toolName ?? '?'} done`);
+        parts.push(`tool:${safe(record.toolName ?? '?')} done`);
         if (this.showLatency && record.durationMs !== undefined) {
           parts.push(this._dim(`— ${record.durationMs}ms`));
         }
         break;
 
       case 'ai.tool.error':
-        parts.push(this._colorize(`tool:${record.toolName ?? '?'} ERROR`, RED));
-        if (record.error) parts.push(this._dim(`— ${record.error}`));
+        parts.push(
+          this._colorize(`tool:${safe(record.toolName ?? '?')} ERROR`, RED),
+        );
+        if (record.error) parts.push(this._dim(`— ${safe(record.error)}`));
         break;
 
       case 'ai.finish':
-        parts.push(`finish ${record.finishReason ?? 'unknown'}`);
+        parts.push(`finish ${safe(record.finishReason ?? 'unknown')}`);
         if (this.showTokens) {
           const total =
             record.totalTokens ??
@@ -113,7 +120,7 @@ export class DevModeTransport implements LogTransport {
         break;
 
       default:
-        parts.push(record.event);
+        parts.push(safe(record.event));
     }
 
     const levelColor = LEVEL_COLORS[record.level] ?? '';
@@ -129,7 +136,7 @@ export class DevModeTransport implements LogTransport {
   private _emitVerbose(record: LogRecord): void {
     const obj = record.toJSON();
     const prefix = this.colors ? `${CYAN}[ai]${RESET}` : '[ai]';
-    console.log(`${prefix} ${record.event}`, obj);
+    console.log(`${prefix} ${safe(record.event)}`, obj);
   }
 
   private _dim(s: string): string {

@@ -1,5 +1,5 @@
 import { bindTelemetryIntegration, type TelemetryIntegration } from 'ai';
-import { metrics } from '@opentelemetry/api';
+import { metrics, trace } from '@opentelemetry/api';
 import type {
   Span,
   Counter,
@@ -355,8 +355,12 @@ class OtelPluginIntegration implements TelemetryIntegration {
     const modelId = this.interner.intern(event.model.modelId);
     const now = performance.now();
 
-    // Sampling decision
-    const sampled = this.sampler ? this.sampler.shouldSample() : true;
+    // Sampling decision. Pass the active trace id for deterministic sampling
+    // when the user selected `sampleBy: 'traceId'`.
+    const activeTraceId = trace.getActiveSpan()?.spanContext().traceId;
+    const sampled = this.sampler
+      ? this.sampler.shouldSample(activeTraceId)
+      : true;
     this.callStates.set(callId, {
       sampled,
       startTime: now,

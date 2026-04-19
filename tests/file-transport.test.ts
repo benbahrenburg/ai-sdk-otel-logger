@@ -1,34 +1,47 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { FileTransport } from '../src/transports/file.js';
 import { LogRecord } from '../src/transport.js';
-import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+const tempDirs: string[] = [];
+
+function tempDir(): string {
+  // mkdtempSync creates a directory atomically with an unguessable suffix,
+  // avoiding the predictable-filename TOCTOU flagged by CodeQL's
+  // `js/insecure-temporary-file` query.
+  const dir = mkdtempSync(join(tmpdir(), 'ai-sdk-test-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
 function tempPath(): string {
-  return join(
-    tmpdir(),
-    `ai-sdk-test-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
-  );
+  return join(tempDir(), 'log.jsonl');
 }
 
 describe('FileTransport', () => {
-  const files: string[] = [];
-
   afterEach(() => {
-    for (const f of files) {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir === undefined) continue;
       try {
-        unlinkSync(f);
+        rmSync(dir, { recursive: true, force: true });
       } catch {
         /* ignore */
       }
     }
-    files.length = 0;
   });
 
   it('should write JSONL records to a file', () => {
     const path = tempPath();
-    files.push(path);
     const transport = new FileTransport({ path });
 
     const r1 = new LogRecord();
@@ -58,7 +71,6 @@ describe('FileTransport', () => {
 
   it('should flush and shutdown without error', async () => {
     const path = tempPath();
-    files.push(path);
     const transport = new FileTransport({ path });
 
     await transport.flush();
@@ -67,7 +79,6 @@ describe('FileTransport', () => {
 
   it('should append to existing file', () => {
     const path = tempPath();
-    files.push(path);
 
     const t1 = new FileTransport({ path });
     const r1 = new LogRecord();
@@ -85,13 +96,10 @@ describe('FileTransport', () => {
   });
 
   it('should allow paths within allowedDir', () => {
-    const baseDir = join(
-      tmpdir(),
-      `ai-sdk-allowed-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    const path = join(baseDir, 'logs', 'app.jsonl');
-    files.push(path);
-    mkdirSync(dirname(path), { recursive: true });
+    const baseDir = tempDir();
+    const logsDir = join(baseDir, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const path = join(logsDir, 'app.jsonl');
 
     const transport = new FileTransport({ path, allowedDir: baseDir });
     const record = new LogRecord();
@@ -103,17 +111,47 @@ describe('FileTransport', () => {
   });
 
   it('should reject paths outside allowedDir', () => {
-    const allowedDir = join(
-      tmpdir(),
-      `ai-sdk-allowed-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    const outsidePath = join(
-      tmpdir(),
-      `ai-sdk-outside-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
-    );
+    const allowedDir = tempDir();
+    const outsidePath = join(tempDir(), 'outside.jsonl');
 
     expect(() => {
       new FileTransport({ path: outsidePath, allowedDir });
-    }).toThrow('outside allowed directory');
+    }).toThrow('outside the allowed directory');
+  });
+
+  it('should refuse to open a symlinked log target', () => {
+    const dir = tempDir();
+    const target = join(dir, 'target.jsonl');
+    writeFileSync(target, '');
+
+    const link = join(dir, 'link.jsonl');
+    symlinkSync(target, link);
+
+    expect(() => {
+      new FileTransport({ path: link });
+    }).toThrow(/symlink/i);
+  });
+
+  it('should invoke onDrop when maxFileSize is exceeded', () => {
+    const path = tempPath();
+    const dropped: Array<{ reason: string }> = [];
+    const transport = new FileTransport({
+      path,
+      maxFileSize: 1,
+      onDrop: (_record, reason) => dropped.push({ reason }),
+    });
+
+    // First write exceeds the 1-byte cap (new file starts empty, so
+    // the first emit is allowed — push two to force a drop).
+    const r1 = new LogRecord();
+    r1.event = 'first';
+    transport.emit(r1);
+
+    const r2 = new LogRecord();
+    r2.event = 'second';
+    transport.emit(r2);
+
+    expect(dropped.length).toBeGreaterThanOrEqual(1);
+    expect(dropped[0].reason).toBe('max-file-size');
   });
 });
