@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-otel-logger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenTelemetry observability plugin for the Vercel AI SDK",
   "type": "module",
   "sideEffects": false,
