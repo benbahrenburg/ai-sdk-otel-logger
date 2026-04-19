@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConsoleJsonTransport } from '../src/transports/console-json.js';
 import type { LogRecord } from '../src/transport.js';
 
@@ -7,6 +7,10 @@ describe('ConsoleJsonTransport', () => {
 
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
   });
 
   it('should call console.log with a JSON string', () => {
