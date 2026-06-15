@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-15
+
+### Security
+
+- Forced `esbuild` to `>=0.28.1` via `overrides` (root and `examples/nextjs-chat`) to resolve [GHSA-gv7w-rqvm-qjhr](https://github.com/advisories/GHSA-gv7w-rqvm-qjhr) (high): missing binary integrity verification in the esbuild Deno module enabling remote code execution via `NPM_CONFIG_REGISTRY`. esbuild was pulled in transitively through `tsup` and `vitest`; the patched release is `0.28.1`.
+
 ## [0.2.0] - 2026-04-18
 
 ### Added
